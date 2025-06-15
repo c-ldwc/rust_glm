@@ -1,0 +1,11 @@
+[package]
+name = "newton"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "newton"
+path = "lib.rs"
+
+[dependencies]
+nalgebra = "0.33.2"
