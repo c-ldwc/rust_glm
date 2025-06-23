@@ -45,14 +45,14 @@ pub mod step {
         Ok(coef)
     }
 
-    fn armijo(dir: &DVector<f64>, a: &f64, c_1: f64, nab: &DVector<f64>, x: &DVector<f64>) -> bool {
+    fn armijo(dir: &DVector<f64>, a: &f64, c_1: &f64, nab: &DVector<f64>, x: &DVector<f64>) -> bool {
         let a_mat = DMatrix::repeat(2, 1, *a);
         let rhs = obj(&x) + c_1 * a * nab.dot(dir);
         let step = x + a_mat.component_mul(dir);
         obj(&step).le(&rhs)
     }
 
-    fn curve(dir: &DVector<f64>, a: &f64, c_2: f64, grad: fn(&DVector<f64>) -> DVector<f64>, x: &DVector<f64>) -> bool {
+    fn curve(dir: &DVector<f64>, a: &f64, c_2: &f64, grad: fn(&DVector<f64>) -> DVector<f64>, x: &DVector<f64>) -> bool {
         let a_mat = DMatrix::repeat(2, 1, *a);
         let step = x + a_mat.component_mul(dir);
         let lhs: f64 = grad(&step).dot(&dir);
