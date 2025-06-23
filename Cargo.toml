@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+itertools = "0.14.0"
 nalgebra = "0.33.2"
-polars = "0.47.1"
-rand = "0.9.1"
-rand_distr = "0.5.1"
+num-traits = "0.2.19"
+rand = "0.8.0"
 statrs = "0.18.0"
-newton = { path = "src/newton" }
+# newton = { path = "src/newton" }
 
 
