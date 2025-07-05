@@ -1,19 +1,18 @@
+use num_traits::Num;
 use std::error::Error;
 use std::fmt::Display;
-use num_traits::Num;
 
 use nalgebra::{DMatrix, DVector, Matrix, SMatrix, SVector, Vector3};
 // use newton::step::optim;
-use rand::rngs::OsRng;
-use statrs::distribution::{Binomial, Normal, Discrete, Continuous};
 use rand::distributions::Distribution;
+use rand::rngs::OsRng;
+use statrs::distribution::{Binomial, Continuous, Discrete, Normal};
 // mod newton;
 mod families;
 use families::Binomial as binomial_family;
-use families::Family;
 
-mod newton;
-use newton::step;
+mod model;
+use model::Model;
 
 const SAMPLE_SIZE: usize = 10;
 
@@ -38,8 +37,10 @@ fn grad(x: &DVector<f64>) -> DVector<f64> {
     return S.component_mul(&A) * x;
 }
 
-fn print_matrix<T:Num>(matrix: &DMatrix<T>)
-where T:Display, {
+fn print_matrix<T: Num>(matrix: &DMatrix<T>)
+where
+    T: Display,
+{
     for r in 0..matrix.nrows() {
         for c in 0..matrix.ncols() {
             print!("{:.6} ", matrix[(r, c)]);
@@ -54,27 +55,27 @@ fn print_vector(vector: &DVector<f64>) {
     }
 }
 
-fn inv_logit(l:f64) -> f64{
-    1.0/(1.0+(-l).exp())
+fn inv_logit(l: f64) -> f64 {
+    1.0 / (1.0 + (-l).exp())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     let n = Normal::new(0.0, 0.2).unwrap();
-    let mut xVec = vec![0.0;SAMPLE_SIZE*3];
+    let mut xVec = vec![0.0; SAMPLE_SIZE * 3];
     let mut r = OsRng;
-    for i in 0..SAMPLE_SIZE*3{
+    for i in 0..SAMPLE_SIZE * 3 {
         xVec[i] = n.sample(&mut r);
     }
 
-    let X = DMatrix::from_vec(SAMPLE_SIZE,3, xVec);
+    let X = DMatrix::from_vec(SAMPLE_SIZE, 3, xVec);
     let c = vec![2.0, 1.7, 8.8];
     let true_coef = DVector::from_vec(c);
 
-    let logits= &X * &true_coef;
+    let logits = &X * &true_coef;
 
     let mut p: DVector<f64> = DVector::zeros(SAMPLE_SIZE);
     let mut y = vec![-1.0; SAMPLE_SIZE];
-    for _i in 0..SAMPLE_SIZE{
+    for _i in 0..SAMPLE_SIZE {
         p[_i] = inv_logit(logits[_i]);
         let b = Binomial::new(p[_i], 1)?;
         y[_i] = b.sample(&mut r);
@@ -83,19 +84,22 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let y_dvec = DVector::<f64>::from_vec(y);
 
-
     let fam = binomial_family::new(
-         (1.0,),
-        X,
-        y_dvec,
+        (1.0,),
+        X.clone(),
+        y_dvec.clone(),
         DVector::from_vec(vec![0.1, 0.1, 0.1]),
     );
 
-    print_vector(&fam.p);
+    let mut model = Model::new(fam, X.clone(), y_dvec.clone());
 
-    print!("\n\n\nTrue p\n");
+    model.optim();
 
-    print_vector(&p);
+    print_vector(&model.coef);
+
+    print!("\n\n\nTrue coef\n");
+
+    print_vector(&true_coef);
 
     // let mut x_0 = vec![-4201.0, 134534.0];
     // let mut x_0 = DVector::from_vec(x_0);
