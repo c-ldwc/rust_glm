@@ -1,6 +1,5 @@
 use num_traits::Num;
 use std::error::Error;
-use std::fmt::Display;
 
 use nalgebra::{DMatrix, DVector, Matrix, SMatrix, SVector, Vector3};
 // use newton::step::optim;
@@ -10,65 +9,28 @@ use statrs::distribution::{Binomial, Continuous, Discrete, Normal};
 // mod newton;
 mod families;
 use families::Binomial as binomial_family;
+use families::Family;
 
 mod model;
 use model::Model;
 
-const SAMPLE_SIZE: usize = 10;
+mod utils;
+use utils::{print_matrix, print_vector, inv_logit_vec, inv_logit_fl};
 
-fn obj(x: &DVector<f64>) -> f64 {
-    let data: Vec<f64> = vec![1.0, 3.0, 3.0, 1.0];
-    let A = DMatrix::from_vec(2, 2, data);
-    let y = A * x;
-    return x.dot(&y);
-}
-
-fn h(x: &DVector<f64>) -> DMatrix<f64> {
-    let data: Vec<f64> = vec![1.0, 3.0, 3.0, 1.0];
-    let A = DMatrix::from_vec(2, 2, data);
-    let S = DMatrix::repeat(2, 2, 2.0);
-    return S.component_mul(&A);
-}
-
-fn grad(x: &DVector<f64>) -> DVector<f64> {
-    let data: Vec<f64> = vec![1.0, 3.0, 3.0, 1.0];
-    let A = DMatrix::from_vec(2, 2, data);
-    let S = DMatrix::repeat(2, 2, 2.0);
-    return S.component_mul(&A) * x;
-}
-
-fn print_matrix<T: Num>(matrix: &DMatrix<T>)
-where
-    T: Display,
-{
-    for r in 0..matrix.nrows() {
-        for c in 0..matrix.ncols() {
-            print!("{:.6} ", matrix[(r, c)]);
-        }
-        println!();
-    }
-}
-
-fn print_vector(vector: &DVector<f64>) {
-    for i in 0..vector.len() {
-        println!("{:.6}", vector[i]);
-    }
-}
-
-fn inv_logit(l: f64) -> f64 {
-    1.0 / (1.0 + (-l).exp())
-}
+const SAMPLE_SIZE: usize = 50_000;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let n = Normal::new(0.0, 0.2).unwrap();
-    let mut xVec = vec![0.0; SAMPLE_SIZE * 3];
+    let mut xVec = vec![1.0; SAMPLE_SIZE * 5];
     let mut r = OsRng;
-    for i in 0..SAMPLE_SIZE * 3 {
+    for i in 0..SAMPLE_SIZE * 4 {
         xVec[i] = n.sample(&mut r);
     }
 
-    let X = DMatrix::from_vec(SAMPLE_SIZE, 3, xVec);
-    let c = vec![2.0, 1.7, 8.8];
+    let X = DMatrix::from_vec(SAMPLE_SIZE, 5, xVec);
+
+    print_matrix(&X);
+    let c = vec![2.0, 1.7, 8.8, 10.0, -2.0];
     let true_coef = DVector::from_vec(c);
 
     let logits = &X * &true_coef;
@@ -76,7 +38,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut p: DVector<f64> = DVector::zeros(SAMPLE_SIZE);
     let mut y = vec![-1.0; SAMPLE_SIZE];
     for _i in 0..SAMPLE_SIZE {
-        p[_i] = inv_logit(logits[_i]);
+        p[_i] = inv_logit_fl(logits[_i]);
         let b = Binomial::new(p[_i], 1)?;
         y[_i] = b.sample(&mut r);
     }
@@ -88,18 +50,33 @@ fn main() -> Result<(), Box<dyn Error>> {
         (1.0,),
         X.clone(),
         y_dvec.clone(),
-        DVector::from_vec(vec![0.1, 0.1, 0.1]),
+        DVector::from_vec(vec![0.1,0.1,0.1,0.1,0.1,]),
     );
 
     let mut model = Model::new(fam, X.clone(), y_dvec.clone());
 
-    model.optim();
+    model.optim()?;
 
     print_vector(&model.coef);
 
     print!("\n\n\nTrue coef\n");
 
     print_vector(&true_coef);
+
+
+    println!("Gradient");
+    let fam = binomial_family::new(
+        (1.0,),
+        X.clone(),
+        y_dvec.clone(),
+        DVector::from_vec(vec![0.1, 0.1, 0.1, 0.1, 0.1]),
+    );
+
+    let nab = fam.grad(&model.coef);
+
+    print_vector(&nab);
+
+    print!("sample size {}", SAMPLE_SIZE);
 
     // let mut x_0 = vec![-4201.0, 134534.0];
     // let mut x_0 = DVector::from_vec(x_0);
