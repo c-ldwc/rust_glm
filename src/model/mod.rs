@@ -70,34 +70,13 @@ impl<F: Family> Model<F> {
             let lu = &hess.lu();
             let dir = lu.solve(&(-&nab))
                 .ok_or("Hessian is not invertible")?;
-            // let dir: nalgebra::Matrix<f64, na_dyn, na_const<1>, nalgebra::VecStorage<f64, na_dyn, na_const<1>>> =
-            //     DMatrix::repeat(self.Data.shape().0, self.Data.shape().1, -1.0).component_mul(
-            //         &hess
-            //             .clone()
-            //             .try_inverse()
-            //             .ok_or("Hessian is not invertible")?,
-            //     ) * &nab;
-            let mut wolfe = false;
-            let mut wolfe_checks = 0;
-            while !wolfe && wolfe_checks < 100 {
-                a = self.optim_args.rho * a;
-                let a_mat = DMatrix::repeat(coef_dim, 1, a).component_mul(&dir);
-                coef_proposal = coef_proposal + a_mat;
-                wolfe = self.check_wolfe(&dir);
-                wolfe_checks += 1
-            }
-
-            if wolfe {
-                self.coef = coef_proposal.clone();
-            } else {
-                return Err(
-                    "Descent direction has no points that meet the Wolfe conditions".into(),
-                );
-            }
+            
+            self.coef = &self.coef + dir;
 
             nab = self.family.grad(&self.coef);
 
             if nab.norm().lt(&1e-5){
+                println!("Converged in {} iterations", _i);
                 return Ok(true)
             }
             hess = self.family.hessian(&self.coef);
