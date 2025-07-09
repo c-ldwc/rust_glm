@@ -1,5 +1,5 @@
 use super::family::Family;
-use itertools::{Zip, multizip};
+use itertools::multizip;
 use nalgebra::{DMatrix, DVector};
 use rug::{Float, Integer}; // For binomial coefficient
 
@@ -10,11 +10,11 @@ use rug::{Float, Integer}; // For binomial coefficient
 
 // Struct representing the Binomial family for GLMs
 pub struct Binomial {
-    n: f64,                // Number of trials
-    Data: DMatrix<f64>,    // Design matrix (features)
-    y: DVector<f64>,       // Response vector
-    coef: DVector<f64>,    // Coefficient vector
-    pub p: DVector<f64>,   // Probability vector
+    Data: DMatrix<f64>, // Design matrix (features)
+    y: DVector<f64>,    // Response vector
+    coef: DVector<f64>,
+    n: f64,              // Number of trials
+    pub p: DVector<f64>, // Probability vector
 }
 
 // Implementation of the Family trait for Binomial
@@ -24,14 +24,21 @@ impl Family for Binomial {
     type coef = DVector<f64>;
     type y = DVector<f64>;
 
+    fn get_y(&self) -> &DVector<f64> {
+        &self.y
+    }
+    fn get_data(&self) -> &DMatrix<f64> {
+        &self.Data
+    }
+
     // Link function: logit (log odds)
     fn link(&self, p: &DVector<f64>) -> DVector<f64> {
-        p.map(|p| (p / (1.0 - p)).ln())
+        p.map(|p| (p / (self.n - p)).ln())
     }
 
     // Variance function: Var[y] = n * p * (1-p)
     fn V(&self, p: &DVector<f64>) -> DVector<f64> {
-        p.map(|p| self.n * p * (1.0 - p))
+        p.map(|p| p * (1.0 - p / self.n))
     }
 
     // Alpha as defined by Wood pp.106
@@ -72,74 +79,24 @@ impl Family for Binomial {
     }
 
     // Scale parameter (constant for binomial)
-    fn scale(&self, x: &DVector<f64>) -> DVector<f64> {
-        DVector::repeat(self.n as usize, 1.0)
+    fn scale(&self) -> f64 {
+        1.0
     }
 
-    // Hessian matrix computation for Newton-Raphson or IRLS
-    fn hessian(&self, x: &DVector<f64>) -> DMatrix<f64> {
-        let X_shape = self.Data.shape();
-
-        // Compute -X^T * W * X efficiently
-        let mut neg_X_t = self.Data
-        .clone()
-        .scale(-1.0)
-        .transpose();
-        let w = self.w(&x);
-
-        // Scale columns of -X^T by weights
-        for i in 0..neg_X_t.shape().1 {
-            neg_X_t.column_mut(i).scale_mut(w[i]);
-        }
-        neg_X_t * &self.Data
+    // Inverse link function: logistic sigmoid
+    fn inv_link(&self, l: &DVector<f64>) -> DVector<f64> {
+        l.map(|x| self.n / (1.0 + (-x).exp()))
     }
 
-    // Gradient of the log-likelihood
-    fn grad(&self, x: &DVector<f64>) -> DVector<f64> {
-        let N = self.Data.shape().0;
-        let mut G_vec = vec![0.0; N];
-
-        let logits = &self.Data * x;
-
-        let p = self.inv_link(&logits);
-
-        let a = self.alpha(&x);
-        let a_iter = a.iter();
-
-        // Compute G_vec = link_der / alpha for each observation
-        let mut G_vec_storage = multizip((a_iter, self.link_der(&p).iter()))
-            .map(|(a, ld)| ld / a)
-            .collect::<Vec<f64>>();
-
-        let G_vec = DVector::<f64>::from_vec(G_vec_storage);
-        
-        let w = self.w(&x);
-
-        // Compute elementwise product of weights and G_vec
-        let mut WG_vec = vec![1.0; w.shape().0];
-
-        for i in 0..w.shape().1{
-            WG_vec[i] = w[i] * G_vec[i];
-        }
-
-        // Multiply each row of X by corresponding WG_vec entry
-        let mut X = self.Data.clone();
-
-        // Save a bit of time here by avoiding two matmuls with diagonal matrices
-        // Multiply the rows of X (the operation requires the transpose) instead
-        for i in 0..X.shape().0{
-            X.row_mut(i).scale_mut(WG_vec[i]);
-        }
-
-        // Return X^T * (y - p)
-        X.transpose() * (&self.y - p)
+    // Derivative of link function wrt p
+    fn link_der(&self, p: &DVector<f64>) -> DVector<f64> {
+        p.map(|p| self.n / (p * (self.n - p)))
     }
 
     // Log-likelihood for the binomial model
     fn log_lik(&self, x: &DVector<f64>) -> f64 {
         let l = &self.Data * x;
         let p = self.inv_link(&l);
-        let w = self.w(&x);
         let theta = self.link(&p);
         let b = theta.map(|t| self.n * (1.0 + t.exp()).ln());
         let n_int = Integer::from(self.n as i32);
@@ -149,8 +106,8 @@ impl Family for Binomial {
             .map(|y| n_int.clone().binomial(y as u32).to_f64().ln());
 
         // Sum log-likelihood contributions for each observation
-        multizip((w.iter(), self.y.iter(), theta.iter(), b.iter(), c.iter()))
-            .map(|(w, y, t, b, c)| w * (y * t - b) + c)
+        multizip((self.y.iter(), theta.iter(), b.iter(), c.iter()))
+            .map(|(y, t, b, c)| (y * t - b) + c)
             .sum::<f64>()
     }
 }
@@ -165,7 +122,7 @@ impl Binomial {
         coef: <Binomial as Family>::coef,
     ) -> Self {
         let l = &Data * &coef;
-        let p = l.map(|x| 1.0 / (1.0 + (-x).exp()));
+        let p = l.map(|x| params.0 / (1.0 + (-x).exp()));
 
         Binomial {
             n: params.0,
@@ -176,16 +133,6 @@ impl Binomial {
         }
     }
 
-    // Inverse link function: logistic sigmoid
-    fn inv_link(&self, l: &DVector<f64>) -> DVector<f64> {
-        l.map(|x| 1.0 / (1.0 + (-x).exp()))
-    }
-
-    // Derivative of link function wrt p
-    fn link_der(&self, p: &DVector<f64>) -> DVector<f64> {
-        p.map(|p| 1.0 / (p * (1.0 - p)))
-    }
-
     // Derivative of link function using self.p
     fn link_der_self(&self) -> DVector<f64> {
         self.link_der(&self.p)
@@ -193,17 +140,12 @@ impl Binomial {
 
     // Second derivative of link function wrt p
     fn link_2der(&self, p: &DVector<f64>) -> DVector<f64> {
-        p.map(|p| (2.0 * p - 1.0) / (p * (1.0 - p)).powi(2))
-    }
-
-    // Second derivative of link function using self.p
-    fn link_2der_self(&self) -> DVector<f64> {
-        self.link_2der(&self.p)
+        p.map(|p| self.n * (self.n - 2.0 * p) / (p.powi(2) * (self.n - p).powi(2)))
     }
 
     // Derivative of variance function wrt p
     fn V_der(&self, p: &DVector<f64>) -> DVector<f64> {
-        p.map(|p| 1.0 - 2.0 * p)
+        p.map(|p| 1.0 - 2.0 * p / self.n)
     }
 
     // Derivative of variance function using self.p
