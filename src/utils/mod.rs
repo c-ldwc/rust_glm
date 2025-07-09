@@ -3,6 +3,11 @@ use nalgebra::{DMatrix, DVector};
 use std::fmt::Display;
 use num_traits::Float;
 
+mod simulation;
+pub use simulation::binom_simulate;
+
+
+
 
 pub fn print_matrix<T: Num>(matrix: &DMatrix<T>)
 where
