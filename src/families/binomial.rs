@@ -14,7 +14,7 @@ pub struct Binomial {
     y: DVector<f64>,    // Response vector
     coef: DVector<f64>,
     n: f64,              // Number of trials
-    pub p: DVector<f64>, // Probability vector
+    pub mu: DVector<f64>, // Mean vector (n*p)
 }
 
 // Implementation of the Family trait for Binomial
@@ -32,23 +32,23 @@ impl Family for Binomial {
     }
 
     // Link function: logit (log odds)
-    fn link(&self, p: &DVector<f64>) -> DVector<f64> {
-        p.map(|p| (p / (self.n - p)).ln())
+    fn link(&self, mu: &DVector<f64>) -> DVector<f64> {
+        mu.map(|mu| (mu / (self.n - mu)).ln())
     }
 
-    // Second derivative of link function wrt p
-    fn link_2der(&self, p: &DVector<f64>) -> DVector<f64> {
-        p.map(|p| self.n * (self.n - 2.0 * p) / (p.powi(2) * (self.n - p).powi(2)))
+    // Second derivative of link function wrt mu
+    fn link_2der(&self, mu: &DVector<f64>) -> DVector<f64> {
+        mu.map(|mu| self.n * (self.n - 2.0 * mu) / (mu.powi(2) * (self.n - mu).powi(2)))
     }
 
-    // Derivative of variance function wrt p
-    fn V_der(&self, p: &DVector<f64>) -> DVector<f64> {
-        p.map(|p| 1.0 - 2.0 * p / self.n)
+    // Derivative of variance function wrt mu
+    fn V_der(&self, mu: &DVector<f64>) -> DVector<f64> {
+        mu.map(|mu| 1.0 - 2.0 * mu / self.n)
     }
 
-    // Variance function: Var[y] = n * p * (1-p)
-    fn V(&self, p: &DVector<f64>) -> DVector<f64> {
-        p.map(|p| p * (1.0 - p / self.n))
+    // Variance function: Var[y] = mu * (1-mu/n)
+    fn V(&self, mu: &DVector<f64>) -> DVector<f64> {
+        mu.map(|mu| mu * (1.0 - mu / self.n))
     }
 
     // Scale parameter (constant for binomial)
@@ -61,15 +61,15 @@ impl Family for Binomial {
         l.map(|x| self.n / (1.0 + (-x).exp()))
     }
 
-    // Derivative of link function wrt p
-    fn link_der(&self, p: &DVector<f64>) -> DVector<f64> {
-        p.map(|p| self.n / (p * (self.n - p)))
+    // Derivative of link function wrt mu
+    fn link_der(&self, mu: &DVector<f64>) -> DVector<f64> {
+        mu.map(|mu| self.n / (mu * (self.n - mu)))
     }
 
     // Log-likelihood for the binomial model
     fn log_lik(&self, l: &DVector<f64>) -> f64 {
-        let p = self.inv_link(&l);
-        let theta = self.link(&p);
+        let mu = self.inv_link(&l);
+        let theta = self.link(&mu);
         let b = theta.map(|t| self.n * (1.0 + t.exp()).ln());
         let n_int = Integer::from(self.n as i32);
         // Compute log binomial coefficient for each y
@@ -94,14 +94,14 @@ impl Binomial {
         coef: <Binomial as Family>::coef,
     ) -> Self {
         let l = &Data * &coef;
-        let p = l.map(|x| params.0 / (1.0 + (-x).exp()));
+        let mu = l.map(|x| params.0 / (1.0 + (-x).exp()));
 
         Binomial {
             n: params.0,
             Data,
             y,
             coef,
-            p,
+            mu,
         }
     }
 }
