@@ -36,46 +36,19 @@ impl Family for Binomial {
         p.map(|p| (p / (self.n - p)).ln())
     }
 
+    // Second derivative of link function wrt p
+    fn link_2der(&self, p: &DVector<f64>) -> DVector<f64> {
+        p.map(|p| self.n * (self.n - 2.0 * p) / (p.powi(2) * (self.n - p).powi(2)))
+    }
+
+    // Derivative of variance function wrt p
+    fn V_der(&self, p: &DVector<f64>) -> DVector<f64> {
+        p.map(|p| 1.0 - 2.0 * p / self.n)
+    }
+
     // Variance function: Var[y] = n * p * (1-p)
     fn V(&self, p: &DVector<f64>) -> DVector<f64> {
         p.map(|p| p * (1.0 - p / self.n))
-    }
-
-    // Alpha as defined by Wood pp.106
-    fn alpha(&self, x: &DVector<f64>) -> DVector<f64> {
-        let l: DVector<f64> = &self.Data * x;
-        let p: DVector<f64> = self.inv_link(&l);
-
-        // Compute alpha for each observation using multizip for elementwise operations
-        let mapped = multizip((
-            self.y.iter(),
-            p.iter(),
-            self.V(&p).iter(),
-            self.V_der(&p).iter(),
-            self.link_der(&p).iter(),
-            self.link_2der(&p).iter(),
-        ))
-        .map(|(y, p, v, v_der, link_der, link_2der)| {
-            1.0 + (y - p) * (v_der / v + link_2der / link_der)
-        })
-        .collect::<Vec<f64>>();
-        DVector::<f64>::from_vec(mapped)
-    }
-
-    // Weights as defined by Wood pp.106
-    fn w(&self, x: &DVector<f64>) -> DVector<f64> {
-        let l = &self.Data * x;
-        let p = self.inv_link(&l);
-
-        // Compute weights for each observation
-        let mapped = multizip((
-            self.alpha(x).iter(),
-            self.link_der(&p).iter(),
-            self.V(&p).iter(),
-        ))
-        .map(|(a, l, V)| a / (l.powi(2) * V))
-        .collect::<Vec<f64>>();
-        DVector::<f64>::from_vec(mapped)
     }
 
     // Scale parameter (constant for binomial)
@@ -94,8 +67,7 @@ impl Family for Binomial {
     }
 
     // Log-likelihood for the binomial model
-    fn log_lik(&self, x: &DVector<f64>) -> f64 {
-        let l = &self.Data * x;
+    fn log_lik(&self, l: &DVector<f64>) -> f64 {
         let p = self.inv_link(&l);
         let theta = self.link(&p);
         let b = theta.map(|t| self.n * (1.0 + t.exp()).ln());
@@ -131,37 +103,5 @@ impl Binomial {
             coef,
             p,
         }
-    }
-
-    // Derivative of link function using self.p
-    fn link_der_self(&self) -> DVector<f64> {
-        self.link_der(&self.p)
-    }
-
-    // Second derivative of link function wrt p
-    fn link_2der(&self, p: &DVector<f64>) -> DVector<f64> {
-        p.map(|p| self.n * (self.n - 2.0 * p) / (p.powi(2) * (self.n - p).powi(2)))
-    }
-
-    // Derivative of variance function wrt p
-    fn V_der(&self, p: &DVector<f64>) -> DVector<f64> {
-        p.map(|p| 1.0 - 2.0 * p / self.n)
-    }
-
-    // Derivative of variance function using self.p
-    fn V_der_self(&self) -> DVector<f64> {
-        self.V_der(&self.p)
-    }
-
-    // Construct diagonal weight matrix from w(x)
-    fn w_mat(&self, x: &DVector<f64>) -> DMatrix<f64> {
-        let N = self.Data.shape().0;
-        let w_vec: nalgebra::Matrix<
-            f64,
-            nalgebra::Dyn,
-            nalgebra::Const<1>,
-            nalgebra::VecStorage<f64, nalgebra::Dyn, nalgebra::Const<1>>,
-        > = self.w(&x);
-        DMatrix::from_diagonal(&w_vec)
     }
 }

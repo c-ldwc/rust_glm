@@ -1,5 +1,6 @@
 use nalgebra::{DMatrix, DVector};
 use itertools::{multizip};
+use crate::utils::{print_vector, print_matrix};
 pub trait Family {
     type Parameters;
     type Data;
@@ -10,9 +11,11 @@ pub trait Family {
     fn link(&self, mu: &DVector<f64>) -> DVector<f64>;
     fn inv_link(&self, l: &DVector<f64>) -> DVector<f64>;
     fn link_der(&self, mu: &DVector<f64>) -> DVector<f64>;
+    fn link_2der(&self, mu:&DVector<f64>) -> DVector<f64>;
+    fn V_der(&self, p: &DVector<f64>) -> DVector<f64>;
     fn V(&self, p: &DVector<f64>) -> DVector<f64>;
-    fn alpha(&self, x: &DVector<f64>) -> DVector<f64>;
-    fn w(&self, x: &DVector<f64>) -> DVector<f64>;
+    // fn alpha(&self, x: &DVector<f64>) -> DVector<f64>;
+    // fn w(&self, x: &DVector<f64>) -> DVector<f64>;
     // Hessian matrix computation for Newton-Raphson or IRLS
     fn hessian(&self, x: &DVector<f64>) -> DMatrix<f64> {
         // Compute -X^T * W * X efficiently
@@ -62,12 +65,53 @@ pub trait Family {
         // Save a bit of time here by avoiding two matmuls with diagonal matrices
         // Multiply the rows of X (the operation requires the transpose) instead
         for i in 0..X.shape().0{
-            X.row_mut(i).scale_mut(WG_vec[i]);
+            X
+            .row_mut(i)
+            .scale_mut(WG_vec[i]);
         }
 
         // Return X^T * (y - p)
         X.transpose() * (self.get_y() - p)
     }
+
+    // Alpha as defined by Wood pp.106
+    fn alpha(&self, x: &DVector<f64>) -> DVector<f64> {
+        let l: DVector<f64> = self.get_data() * x;
+        let p: DVector<f64> = self.inv_link(&l);
+
+        // Compute alpha for each observation using multizip for elementwise operations
+        let mapped = multizip((
+            self.get_y().iter(),
+            p.iter(),
+            self.V(&p).iter(),
+            self.V_der(&p).iter(),
+            self.link_der(&p).iter(),
+            self.link_2der(&p).iter(),
+        ))
+        .map(|(y, p, v, v_der, link_der, link_2der)| {
+            1.0 + (y - p) * (v_der / v + link_2der / link_der)
+        })
+        .collect::<Vec<f64>>();
+        DVector::<f64>::from_vec(mapped)
+    }
+
+    // Weights as defined by Wood pp.106
+
+    fn w(&self, x: &DVector<f64>) -> DVector<f64> {
+        let l = self.get_data() * x;
+        let p = self.inv_link(&l);
+
+        // Compute weights for each observation
+        let mapped = multizip((
+            self.alpha(x).iter(),
+            self.link_der(&p).iter(),
+            self.V(&p).iter(),
+        ))
+        .map(|(a, l, V)| a / (l.powi(2) * V))
+        .collect::<Vec<f64>>();
+        DVector::<f64>::from_vec(mapped)
+    }
+
     fn log_lik(&self, x: &DVector<f64>) -> f64;
     fn scale(&self) -> f64;
 }

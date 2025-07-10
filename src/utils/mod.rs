@@ -4,7 +4,7 @@ use std::fmt::Display;
 use num_traits::Float;
 
 mod simulation;
-pub use simulation::binom_simulate;
+pub use simulation::{binom_simulate, poisson_simulate};
 
 
 
